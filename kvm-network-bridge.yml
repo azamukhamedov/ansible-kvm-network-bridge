@@ -1,0 +1,136 @@
+---
+#Define the bridge/ethernet variable
+
+- hosts: all
+  vars:
+    ethernet:
+    bridge:
+
+  tasks:
+
+#Network on Centos
+  - name: Network manager | CentOS
+    block:
+
+      - name: Install the network manager packages | CentOS
+        action: "{{ ansible_pkg_mgr }}"
+        args:
+          name: "{{ item }}"
+          state: present
+        loop:
+          - NetworkManager
+          - lshw
+        when: ansible_facts['distribution'] == "Centos" and "RedHat"
+        become: yes
+        tags:
+          - CentOS
+
+#Enable Network Manager service
+  - name: Enable and start the "NetworkManager" service
+    service:
+      name: NetworkManager
+      state: started
+      enabled: yes
+    when: ansible_facts['distribution'] == "CentOS and Redhat"
+    become: yes
+    tags:
+      - service
+
+#Display network hardware (lshw -class network)
+  - name: Extract the detailed network hardware information
+    shell: lshw -class network
+    register: network_hardware
+    become: yes
+    tags:
+      - lshw
+
+  - name: Display the detailed network hardware information
+    debug:
+      var: network_hardware.stdout_lines
+
+#Display network configuration
+  - name: Identify the network devices configuration
+    shell: ip link show | grep "{{ ethernet }}"
+    become: yes
+    register: ethernet_devices
+    changed_when: false
+
+  - name: Display the network devices configuration
+    debug:
+      var: ethernet_devices.stdout_lines
+
+#Display the bridge configuration
+  - name: Identify the bridge network configuration
+    shell: ip link show | grep "{{ bridge }}"
+    register: bridge_network
+    become: yes
+    changed_when: bridge_network.rc != 0
+    failed_when: false
+    tags:
+      - bridge
+
+  - name: Display the bridge network configuration
+    debug:
+      var: bridge_network.stdout_lines
+
+#Identify the active network connection
+  - name: Identify the first active network connection
+    shell: |
+       nmcli -t -m tabular con show --active |  awk -F ':' '{ print $1 }' | head -n1
+    register: active
+    become: yes
+    tags:
+      - active
+
+  - name: Network | Set facts
+    set_fact:
+      active: "{{ active.stdout }}"
+     
+#Display the active network connection
+  - name: Display the first active network connection
+    debug:
+      var: active
+
+#Create the bridge network and slave interface
+  - name: Configure the bridge network with nmcli tool
+    shell: |
+       nmcli con add type bridge ifname "{{ bridge }}" con-name "{{ bridge }}"
+       nmcli con add type bridge-slave ifname "{{ active }}" master "{{ bridge }}"
+    register: bridge_result
+    become: yes
+    tags:
+      - nmcli
+
+  - name: Display the bridge network configurations
+    debug:
+      var: bridge_result.stdout_lines
+
+#Switch to the bridge networking
+  - name: Switch to the network bridge configuration
+    shell: |
+       nmcli con down "{{ active }}"
+       nmcli con up "{{ bridge }}"
+       nmcli con reload
+       nmcli con show
+    register: nmcli_result
+    become: yes
+
+  - name: Display the current network configurations
+    debug: 
+      var: nmcli_result.stdout_lines
+
+#Wait for network changes
+  - name: Wait for the network changes
+    wait_for_connection:
+      delay: 10
+      timeout: 45
+
+#Perform the testing
+  - name: Test configuration
+    shell: nmcli con show
+    become: yes
+    register: test
+
+  - name: Display the bridge network configurations
+    debug:
+      var: test.stdout_lines
