@@ -4,7 +4,11 @@
 - hosts: all
   vars:
     ethernet:
-    bridge:
+
+  vars_prompt:
+    - name: bridge
+      prompt: Define the bridge variable
+      private: no
 
   tasks:
 
@@ -20,7 +24,7 @@
         loop:
           - NetworkManager
           - lshw
-        when: ansible_facts['distribution'] == "Centos" and "RedHat"
+        when: ansible_facts['distribution'] == "CentOS"
         become: yes
         tags:
           - CentOS
@@ -31,7 +35,7 @@
       name: NetworkManager
       state: started
       enabled: yes
-    when: ansible_facts['distribution'] == "CentOS and Redhat"
+    when: ansible_facts['distribution'] == "CentOS"
     become: yes
     tags:
       - service
@@ -79,6 +83,8 @@
        nmcli -t -m tabular con show --active |  awk -F ':' '{ print $1 }' | head -n1
     register: active
     become: yes
+    failed_when:
+      - ('br' in active.stdout)
     tags:
       - active
 
